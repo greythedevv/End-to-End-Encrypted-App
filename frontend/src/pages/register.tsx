@@ -1,6 +1,12 @@
+import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { register } from "../lib/auth";
-import { generateRSAKeyPair, exportPublicKey } from "../lib/crypto/generateKeys";
+import {
+  generateRSAKeyPair,
+  exportPublicKey,
+  deriveWrappingKey,
+  wrapPrivateKey,
+} from "../lib/crypto/generateKeys";
 
 export default function RegisterPage() {
   const [form, setForm] = useState({
@@ -10,8 +16,20 @@ export default function RegisterPage() {
   });
 
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
+
+  const arrayBufferToBase64 = (buffer: ArrayBuffer) =>
+    btoa(String.fromCharCode(...new Uint8Array(buffer)));
 
   const handleRegister = async () => {
+    setError(null);
+
+    if (!form.username.trim() || !form.displayName.trim() || !form.password) {
+      setError("Please enter username, display name, and password.");
+      return;
+    }
+
     try {
       setLoading(true);
 
@@ -21,25 +39,46 @@ export default function RegisterPage() {
       // 📤 2. Export public key
       const publicKeyBase64 = await exportPublicKey(publicKey);
 
-      // 🔐 3. Create salt (for backend encryption flow)
+      // 🔐 3. Create salt for PBKDF2
       const salt = crypto.getRandomValues(new Uint8Array(16));
 
-      // 🧾 4. Send to WhisperBox API
+      // 🔐 4. Derive wrapping key from password + salt
+      const wrappingKey = await deriveWrappingKey(
+        form.password,
+        salt.buffer
+      );
+
+      // 🔐 5. Wrap the private key with AES-KW
+      const wrappedPrivateKey = await wrapPrivateKey(
+        privateKey,
+        wrappingKey
+      );
+
+      const wrappedPrivateKeyBase64 = arrayBufferToBase64(
+        wrappedPrivateKey
+      );
+
+      // 🧾 6. Send to WhisperBox API
       const res = await register({
         username: form.username,
         display_name: form.displayName,
         password: form.password,
         public_key: publicKeyBase64,
-        wrapped_private_key: "", // backend expects it, but real wrapping is done in login flow spec
+        wrapped_private_key: wrappedPrivateKeyBase64,
         pbkdf2_salt: btoa(String.fromCharCode(...salt)),
       });
 
       console.log("User created:", res);
-
       alert("Account created 🔐");
+      navigate("/login");
     } catch (err) {
       console.error(err);
-      alert("Registration failed");
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Registration failed. Please try again.";
+      setError(message);
+      alert(message);
     } finally {
       setLoading(false);
     }
@@ -80,6 +119,12 @@ export default function RegisterPage() {
             }
           />
 
+          {error && (
+            <div className="p-3 rounded bg-red-900/20 text-sm text-red-100">
+              {error}
+            </div>
+          )}
+
           <button
             onClick={handleRegister}
             disabled={loading}
@@ -87,6 +132,10 @@ export default function RegisterPage() {
           >
             {loading ? "Creating..." : "Create Account"}
           </button>
+
+          <div className="text-center text-sm text-gray-300">
+            Already have an account? <Link to="/login" className="text-purple-300 hover:underline">Login</Link>
+          </div>
         </div>
 
         <p className="text-xs text-center text-gray-400 mt-6">

@@ -1,3 +1,4 @@
+import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { login } from "../lib/auth";
 import { deriveWrappingKey, unwrapPrivateKey } from "../lib/crypto/generateKeys";
@@ -10,6 +11,8 @@ export default function Login() {
   });
 
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const base64ToBuf = (b64: string): ArrayBuffer => {
     const binary = atob(b64);
@@ -20,7 +23,17 @@ export default function Login() {
     return bytes.buffer;
   };
 
+  const isAesKwInputLengthError = (error: unknown) => {
+    return (
+      error instanceof Error &&
+      /AES-KW.*not a multiple of 8 bytes|input data length is invalid/i.test(
+        error.message
+      )
+    );
+  };
+
   const handleLogin = async () => {
+    setError(null);
     try {
       setLoading(true);
 
@@ -44,12 +57,24 @@ export default function Login() {
 
       // 💾 5. Store session
       setAuthToken(data.access_token);
+      localStorage.setItem("token", data.access_token);
       (window as any).__PRIVATE_KEY__ = privateKey;
 
       alert("Login successful 🔐");
+      navigate("/chat");
     } catch (err) {
       console.error(err);
-      alert("Login failed");
+
+      let message =
+        err instanceof Error ? err.message : "Login failed. Please try again.";
+
+      if (isAesKwInputLengthError(err)) {
+        message =
+          "Unable to restore your private key. Check your password and try again.";
+      }
+
+      setError(message);
+      alert(message);
     } finally {
       setLoading(false);
     }
@@ -64,6 +89,7 @@ export default function Login() {
         <input
           className="w-full p-2 bg-black/40 rounded"
           placeholder="Username"
+          value={form.username}
           onChange={(e) =>
             setForm({ ...form, username: e.target.value })
           }
@@ -73,10 +99,17 @@ export default function Login() {
           type="password"
           className="w-full p-2 bg-black/40 rounded"
           placeholder="Password"
+          value={form.password}
           onChange={(e) =>
             setForm({ ...form, password: e.target.value })
           }
         />
+
+        {error && (
+          <div className="p-3 rounded bg-red-900/20 text-sm text-red-100">
+            {error}
+          </div>
+        )}
 
         <button
           onClick={handleLogin}
@@ -84,6 +117,10 @@ export default function Login() {
         >
           {loading ? "Loading..." : "Login"}
         </button>
+
+        <div className="text-center text-sm text-gray-300">
+          Don't have an account? <Link to="/" className="text-purple-300 hover:underline">Register</Link>
+        </div>
       </div>
     </div>
   );

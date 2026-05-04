@@ -9,10 +9,6 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<any[]>([]);
   const [text, setText] = useState("");
   const [recipientId, setRecipientId] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  const [isSending, setIsSending] = useState(false);
-  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
 
   const token = localStorage.getItem("token");
   const currentUserId = localStorage.getItem("userId");
@@ -22,17 +18,11 @@ export default function ChatPage() {
   const navigate = useNavigate();
 
   // -------------------------
-  // GET RECIPIENT PUBLIC KEY
+  // GET PUBLIC KEYS
   // -------------------------
   const getRecipientKey = async () => {
-    const res = await api.get(`/users/${recipientId}/public-key`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    const raw = Uint8Array.from(
-      atob(res.data.public_key),
-      (c) => c.charCodeAt(0)
-    );
+    const res = await api.get(`/users/${recipientId}/public-key`);
+    const raw = Uint8Array.from(atob(res.data.public_key), c => c.charCodeAt(0));
 
     return crypto.subtle.importKey(
       "spki",
@@ -43,18 +33,9 @@ export default function ChatPage() {
     );
   };
 
-  // -------------------------
-  // GET MY PUBLIC KEY (for self encryption)
-  // -------------------------
   const getMyPublicKey = async () => {
-    const res = await api.get("/auth/me", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    const raw = Uint8Array.from(
-      atob(res.data.public_key),
-      (c) => c.charCodeAt(0)
-    );
+    const res = await api.get("/auth/me");
+    const raw = Uint8Array.from(atob(res.data.public_key), c => c.charCodeAt(0));
 
     return crypto.subtle.importKey(
       "spki",
@@ -66,133 +47,86 @@ export default function ChatPage() {
   };
 
   // -------------------------
-  // SEND MESSAGE
+  // SEND
   // -------------------------
   const sendMessage = async () => {
-    if (!text.trim() || !recipientId) return;
+    if (!text || !recipientId) return;
 
-    setIsSending(true);
-    setError(null);
+    const recipientKey = await getRecipientKey();
+    const myKey = await getMyPublicKey();
 
-    try {
-      const recipientKey = await getRecipientKey();
-      const myKey = await getMyPublicKey();
+    const payload = await encryptMessage(text, recipientKey, myKey);
 
-      const encrypted = await encryptMessage(
-        text,
-        recipientKey,
-        myKey
-      );
-
-      // Prefer WS
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(
-          JSON.stringify({
-            event: "message.send",
-            to: recipientId,
-            payload: encrypted,
-          })
-        );
-      } else {
-        // fallback HTTP
-        await api.post(
-          "/messages",
-          { to: recipientId, payload: encrypted },
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-      }
-
-      setText("");
-    } catch (err) {
-      console.error(err);
-      setError("Failed to send message");
-    } finally {
-      setIsSending(false);
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        event: "message.send",
+        to: recipientId,
+        payload
+      }));
+    } else {
+      await api.post("/messages", { to: recipientId, payload });
     }
+
+    setText("");
   };
 
   // -------------------------
   // LOAD MESSAGES
   // -------------------------
   const loadMessages = async () => {
-    if (!recipientId || !privateKey) return;
+    const res = await api.get(`/conversations/${recipientId}/messages`);
 
-    setIsLoadingMessages(true);
+    const decrypted = await Promise.all(
+      res.data.map(async (m: any) => {
+        const isSender = m.from_user_id === currentUserId;
 
-    try {
-      const res = await api.get(
-        `/conversations/${recipientId}/messages`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+        const text = await decryptMessage(
+          m.payload,
+          privateKey,
+          isSender
+        );
 
-      const decrypted = await Promise.all(
-        res.data.map(async (m: any) => {
-          const text = await decryptMessage(
-            m.payload,
-            privateKey
-          );
+        return { ...m, text };
+      })
+    );
 
-          return { ...m, text };
-        })
-      );
-
-      setMessages(decrypted.reverse());
-    } catch (err) {
-      console.error(err);
-      setError("Failed to load messages");
-    } finally {
-      setIsLoadingMessages(false);
-    }
+    setMessages(decrypted.reverse());
   };
 
   // -------------------------
-  // WEBSOCKET SETUP
+  // WEBSOCKET
   // -------------------------
   useEffect(() => {
-    if (!token || !privateKey) return;
+    if (!token) return;
 
     const ws = connectWS(token);
     wsRef.current = ws;
 
-    ws.onopen = () => console.log("🟢 WS connected");
-
-    ws.onmessage = async (event) => {
-      const data = JSON.parse(event.data);
+    ws.onmessage = async (e) => {
+      const data = JSON.parse(e.data);
 
       if (data.event === "message.receive") {
+        const isSender = data.from_user_id === currentUserId;
+
         const text = await decryptMessage(
           data.payload,
-          privateKey
+          privateKey,
+          isSender
         );
 
-        setMessages((prev) => [
-          ...prev,
-          { ...data, text },
-        ]);
+        setMessages(prev => [...prev, { ...data, text }]);
       }
     };
 
     ws.onclose = (e) => {
-      console.log("🔴 WS closed", e.code);
-
-      if (e.code === 4001) {
-        alert("Session expired. Please login again.");
-        navigate("/login");
-      }
-
-      if (e.code === 4003) {
+      if (e.code === 4001 || e.code === 4003) {
         navigate("/login");
       }
     };
 
-    ws.onerror = (err) => console.error("WS error", err);
-
     return () => ws.close();
-  }, [token, privateKey]);
+  }, [token]);
 
-  // -------------------------
-  // LOAD ON RECIPIENT CHANGE
-  // -------------------------
   useEffect(() => {
     if (recipientId) loadMessages();
   }, [recipientId]);
@@ -203,57 +137,33 @@ export default function ChatPage() {
   return (
     <div className="h-screen flex flex-col bg-black text-white">
 
-      <div className="p-4 border-b border-gray-700">
-        <input
-          className="p-2 bg-gray-800 rounded w-full"
-          placeholder="Recipient ID"
-          value={recipientId}
-          onChange={(e) => setRecipientId(e.target.value)}
-        />
+      <input
+        value={recipientId}
+        onChange={(e) => setRecipientId(e.target.value)}
+        placeholder="Recipient ID"
+        className="p-2"
+      />
+
+      <div className="flex-1 overflow-y-auto p-4">
+        {messages.map((m, i) => (
+          <div
+            key={i}
+            className={m.from_user_id === currentUserId
+              ? "text-right"
+              : "text-left"}
+          >
+            {m.text}
+          </div>
+        ))}
       </div>
 
-      {error && (
-        <div className="m-4 p-3 bg-red-900/20 text-red-200">
-          {error}
-        </div>
-      )}
-
-      <div className="flex-1 overflow-y-auto p-4 space-y-2">
-        {isLoadingMessages ? (
-          <div>Loading...</div>
-        ) : messages.length ? (
-          messages.map((m, i) => (
-            <div
-              key={i}
-              className={`p-2 rounded ${
-                m.from_user_id === currentUserId
-                  ? "bg-purple-600 ml-auto"
-                  : "bg-gray-700"
-              }`}
-            >
-              {m.text}
-            </div>
-          ))
-        ) : (
-          <div>No messages</div>
-        )}
-      </div>
-
-      <div className="p-4 flex gap-2 border-t border-gray-700">
+      <div className="flex">
         <input
-          className="flex-1 p-2 bg-gray-800 rounded"
           value={text}
           onChange={(e) => setText(e.target.value)}
-          disabled={isSending}
+          className="flex-1"
         />
-
-        <button
-          onClick={sendMessage}
-          disabled={isSending}
-          className="px-4 bg-purple-600 rounded"
-        >
-          Send
-        </button>
+        <button onClick={sendMessage}>Send</button>
       </div>
     </div>
   );

@@ -5,7 +5,7 @@ import { connectWS, getWS } from "../lib/ws";
 import { decryptMessage } from "../lib/crypto/decryptMessage";
 import { encryptMessage } from "../lib/crypto/encryptMessage";
 import { api } from "../lib/api";
-import { base64ToBuf, bufToBase64 } from "../lib/crypto/generateKeys";
+import { base64ToBuf } from "../lib/crypto/generateKeys";
 import { useNavigate } from "react-router-dom";
 
 interface Message {
@@ -53,6 +53,7 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchUser[]>([]);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState<OnlineUsers>({});
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [encryptedIndicator, setEncryptedIndicator] = useState(false);
@@ -163,16 +164,40 @@ export default function ChatPage() {
     const timeout = setTimeout(() => {
       api.get(`/users/search?q=${searchQuery}`).then((res) => {
         setSearchResults(res.data);
+        setSearchOpen(Boolean(searchQuery.trim()));
       });
     }, 300);
     return () => clearTimeout(timeout);
   }, [searchQuery]);
+
+  const closeSearch = () => {
+    setSearchQuery("");
+    setSearchResults([]);
+    setSearchOpen(false);
+    searchRef.current?.blur();
+  };
+
+  const closeSidebarOnMobile = () => {
+    if (window.innerWidth <= 900) {
+      setSidebarOpen(false);
+    }
+  };
+
+  const closeSidebarAndBlur = () => {
+    closeSidebarOnMobile();
+    closeSearch();
+    const active = document.activeElement as HTMLElement | null;
+    if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) {
+      active.blur();
+    }
+  };
 
   const selectConversation = (conv: Conversation) => {
     setRecipientId(conv.user_id);
     setRecipientName(conv.display_name);
     setSearchQuery("");
     setSearchResults([]);
+    closeSidebarOnMobile();
   };
 
   const selectSearchResult = (user: SearchUser) => {
@@ -180,6 +205,8 @@ export default function ChatPage() {
     setRecipientName(user.display_name);
     setSearchQuery("");
     setSearchResults([]);
+    setSearchOpen(false);
+    closeSidebarOnMobile();
   };
 
   const sendMessage = async () => {
@@ -302,25 +329,31 @@ export default function ChatPage() {
 
         .chat-root {
           display: flex;
-          height: 100vh;
-          width: 100vw;
-          background: var(--bg-deep);
+          min-height: 100vh;
+          width: 100%;
+          background: radial-gradient(circle at top left, rgba(56, 126, 255, 0.12), transparent 24%), radial-gradient(circle at bottom right, rgba(36, 42, 72, 0.35), transparent 35%), #111827;
           font-family: var(--font-body);
           color: var(--text-1);
           overflow: hidden;
+          overscroll-behavior: none;
         }
 
         /* ── SIDEBAR ── */
         .sidebar {
           width: 300px;
           min-width: 300px;
-          background: var(--bg-panel);
-          border-right: 1px solid var(--border);
+          background: rgba(15, 23, 42, 0.96);
+          border-right: 1px solid rgba(148, 163, 184, 0.12);
           display: flex;
           flex-direction: column;
           transition: transform 0.3s ease;
           position: relative;
           z-index: 10;
+          backdrop-filter: blur(14px);
+        }
+
+        .sidebar.closed {
+          transform: translateX(-100%);
         }
 
         .sidebar-header {
@@ -414,17 +447,93 @@ export default function ChatPage() {
           box-shadow: 0 8px 32px #00000060;
         }
 
-        .search-result-item {
-          padding: 10px 14px;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          transition: background 0.15s;
-        }
+          .search-close {
+            position: absolute;
+            right: 12px;
+            top: 12px;
+            width: 24px;
+            height: 24px;
+            border: none;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.06);
+            color: var(--text-2);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
 
-        .search-result-item:hover { background: var(--bg-hover); }
+          .open-sidebar-btn {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--text-1);
+            padding: 8px 12px;
+            border-radius: 12px;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+          }
 
+          .sidebar-backdrop {
+            display: none;
+            pointer-events: none;
+          }
+
+          @media (max-width: 900px) {
+            .sidebar-backdrop.active {
+              display: block;
+              position: fixed;
+              inset: 0;
+              background: rgba(0,0,0,0.35);
+              z-index: 5;
+              pointer-events: auto;
+            }
+            .chat-root {
+              flex-direction: column;
+              height: 100%;
+            }
+
+            .sidebar {
+              position: absolute;
+              top: 0;
+              left: 0;
+              bottom: 0;
+              width: 100%;
+              max-width: 100%;
+              transform: translateX(-100%);
+              box-shadow: 12px 0 40px rgba(0,0,0,0.4);
+            }
+
+            .sidebar.closed {
+              transform: translateX(-100%);
+            }
+
+            .sidebar:not(.closed) {
+              transform: translateX(0);
+            }
+
+            .chat-header {
+              flex-wrap: wrap;
+              gap: 10px;
+            }
+
+            .open-sidebar-btn {
+              display: inline-flex;
+            }
+
+            .chat-main {
+              flex: 1;
+              min-width: 0;
+              width: 100%;
+              position: relative;
+            }
+
+            .messages-area {
+              padding-bottom: 120px;
+            }
+          }
         .conv-list {
           flex: 1;
           overflow-y: auto;
@@ -511,21 +620,41 @@ export default function ChatPage() {
           display: flex;
           flex-direction: column;
           min-width: 0;
+          min-height: 0;
+          height: 100%;
           background: var(--bg-deep);
         }
 
+        .messages-area {
+          min-height: 0;
+          flex: 1;
+        }
+
         .chat-header {
-          padding: 0 24px;
-          height: 60px;
-          border-bottom: 1px solid var(--border);
+          padding: 0 22px;
+          height: 72px;
+          border-bottom: 1px solid rgba(148, 163, 184, 0.12);
           display: flex;
           align-items: center;
-          gap: 12px;
-          background: var(--bg-panel);
+          gap: 14px;
+          background: rgba(15, 23, 42, 0.96);
+          backdrop-filter: blur(14px);
           flex-shrink: 0;
         }
 
-        .chat-header-info { flex: 1; }
+        .chat-header-info { flex: 1; min-width: 0; }
+
+        .chat-header-name {
+          font-size: 17px;
+          font-weight: 700;
+          color: #f8fafc;
+        }
+
+        .chat-header-status {
+          font-size: 12px;
+          color: #94a3b8;
+          margin-top: 2px;
+        }
 
         .chat-header-name {
           font-size: 15px;
@@ -607,10 +736,11 @@ export default function ChatPage() {
         .messages-area {
           flex: 1;
           overflow-y: auto;
-          padding: 20px 24px;
+          padding: 24px 24px 18px;
           display: flex;
           flex-direction: column;
-          gap: 2px;
+          gap: 8px;
+          background: radial-gradient(circle at top center, rgba(255,255,255,0.02), transparent 22%), rgba(15, 23, 42, 0.02);
         }
 
         .messages-area::-webkit-scrollbar { width: 3px; }
@@ -648,27 +778,30 @@ export default function ChatPage() {
         .msg-row.recv { justify-content: flex-start; }
 
         .msg-bubble {
-          max-width: 65%;
-          padding: 10px 14px;
-          border-radius: 16px;
+          max-width: 68%;
+          padding: 12px 16px;
+          border-radius: 22px;
           font-size: 14px;
-          line-height: 1.55;
+          line-height: 1.58;
           word-break: break-word;
           position: relative;
+          box-shadow: 0 10px 18px rgba(0, 0, 0, 0.08);
         }
 
         .msg-row.sent .msg-bubble {
-          background: var(--sent-bg);
-          border: 1px solid var(--sent-border);
-          border-bottom-right-radius: 4px;
-          color: var(--text-1);
+          background: linear-gradient(135deg, #1d4ed8, #2563eb);
+          color: #fff;
+          border-bottom-right-radius: 6px;
+          border-bottom-left-radius: 22px;
+          align-self: flex-end;
         }
 
         .msg-row.recv .msg-bubble {
-          background: var(--recv-bg);
-          border: 1px solid var(--recv-border);
-          border-bottom-left-radius: 4px;
-          color: var(--text-1);
+          background: rgba(148, 163, 184, 0.12);
+          color: #e2e8f0;
+          border-bottom-left-radius: 6px;
+          border-bottom-right-radius: 22px;
+          align-self: flex-start;
         }
 
         .msg-time {
@@ -689,22 +822,26 @@ export default function ChatPage() {
 
         /* Input area */
         .input-area {
-          padding: 16px 24px;
-          border-top: 1px solid var(--border);
-          background: var(--bg-panel);
+          padding: 14px 22px 18px;
+          border-top: 1px solid rgba(148, 163, 184, 0.12);
+          background: rgba(15, 23, 42, 0.96);
           display: flex;
           align-items: flex-end;
           gap: 12px;
+          position: sticky;
+          bottom: 0;
+          z-index: 10;
+          margin-top: auto;
         }
 
         .input-wrap {
           flex: 1;
-          background: var(--bg-input);
-          border: 1px solid var(--border);
-          border-radius: 14px;
+          background: rgba(148, 163, 184, 0.08);
+          border: 1px solid rgba(148, 163, 184, 0.16);
+          border-radius: 999px;
           display: flex;
-          align-items: flex-end;
-          padding: 10px 14px;
+          align-items: center;
+          padding: 12px 16px;
           transition: border-color 0.2s;
         }
 
@@ -712,32 +849,34 @@ export default function ChatPage() {
 
         .msg-input {
           flex: 1;
-          background: none;
+          background: transparent;
           border: none;
           outline: none;
-          color: var(--text-1);
+          color: #e2e8f0;
           font-family: var(--font-body);
-          font-size: 14px;
+          font-size: 15px;
           resize: none;
           max-height: 120px;
-          line-height: 1.5;
+          line-height: 1.6;
+          min-height: 44px;
         }
 
         .msg-input::placeholder { color: var(--text-3); }
 
         .send-btn {
-          width: 40px;
-          height: 40px;
-          min-width: 40px;
-          background: var(--accent);
+          width: 44px;
+          height: 44px;
+          min-width: 44px;
+          background: #2563eb;
           border: none;
-          border-radius: 12px;
+          border-radius: 50%;
           cursor: pointer;
           display: flex;
           align-items: center;
           justify-content: center;
           transition: background 0.2s, transform 0.1s, opacity 0.2s;
           color: white;
+          box-shadow: 0 10px 20px rgba(37, 99, 235, 0.24);
         }
 
         .send-btn:hover:not(:disabled) { background: #6ba3ff; transform: scale(1.05); }
@@ -755,8 +894,11 @@ export default function ChatPage() {
       `}</style>
 
       <div className="chat-root">
+        {/* ── MOBILE BACKDROP ── */}
+        <div className={`sidebar-backdrop${sidebarOpen ? " active" : ""}`} onClick={closeSidebarAndBlur} />
+
         {/* ── SIDEBAR ── */}
-        <aside className="sidebar">
+        <aside className={`sidebar${sidebarOpen ? "" : " closed"}`}>
           <div className="sidebar-header">
             <div className="logo">
               <div className="logo-icon">🔐</div>
@@ -784,8 +926,9 @@ export default function ChatPage() {
               onChange={(e) => setSearchQuery(e.target.value)}
             />
 
-            {searchResults.length > 0 && (
+            {searchOpen && searchResults.length > 0 && (
               <div className="search-results">
+                <button className="search-close" onClick={closeSearch} aria-label="Close search results">×</button>
                 {searchResults.map((u) => (
                   <div key={u.id} className="search-result-item" onClick={() => selectSearchResult(u)}>
                     <div className="avatar small">{u.display_name[0].toUpperCase()}</div>
@@ -851,6 +994,10 @@ export default function ChatPage() {
                     }
                   </div>
                 </div>
+                <button className="open-sidebar-btn" onClick={() => setSidebarOpen(true)} title="Open user list">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+                  Users
+                </button>
 
                 {/* Encrypted indicator — required by spec */}
                 <div className={`enc-badge${encryptedIndicator ? " flash" : ""}`}>

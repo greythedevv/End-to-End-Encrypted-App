@@ -19,13 +19,13 @@ type State = {
 
 export const useAuth = create<State>((set) => ({
   token: localStorage.getItem("token"),
-  refreshToken: localStorage.getItem("refresh"),
+  refreshToken: localStorage.getItem("refreshToken"),
   userId: localStorage.getItem("userId"),
   privateKey: (window as any).__PRIVATE_KEY__ ?? null,
 
   setSession: ({ token, refreshToken, userId, privateKey }) => {
     localStorage.setItem("token", token);
-    localStorage.setItem("refresh", refreshToken);
+    localStorage.setItem("refreshToken", refreshToken);
     localStorage.setItem("userId", userId);
 
     (window as any).__PRIVATE_KEY__ = privateKey;

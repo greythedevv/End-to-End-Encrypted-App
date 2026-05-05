@@ -3,31 +3,23 @@ const STORE = "keys";
 
 export async function savePrivateKey(key: CryptoKey) {
   const db = await openDB();
-  const exported = await crypto.subtle.exportKey("pkcs8", key);
-
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE, "readwrite");
-    const store = tx.objectStore(STORE);
-    const req = store.put(exported, "privateKey");
-
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
+    tx.objectStore(STORE).put(key, "privateKey"); // Store CryptoKey, not raw bytes
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
 }
 
-export async function getPrivateKey(): Promise<ArrayBuffer | null> {
+export async function getPrivateKey(): Promise<CryptoKey | null> {
   const db = await openDB();
-
-  return new Promise<ArrayBuffer | null>((resolve, reject) => {
+  return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, "readonly");
-    const store = tx.objectStore(STORE);
-    const req = store.get("privateKey");
-
+    const req = tx.objectStore(STORE).get("privateKey");
     req.onsuccess = () => resolve(req.result ?? null);
     req.onerror = () => reject(req.error);
   });
 }
-
 // -----------------------
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {

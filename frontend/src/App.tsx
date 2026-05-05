@@ -1,5 +1,5 @@
 import { Navigate, Route, Routes } from "react-router-dom"
-import ChatPage from "./pages/chat"
+import ChatPage from "./pages/Chat"
 import LoginPage from "./pages/login"
 import RegisterPage from "./pages/register"
 

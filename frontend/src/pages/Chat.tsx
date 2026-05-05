@@ -5,7 +5,7 @@ import { connectWS, getWS } from "../lib/ws";
 import { decryptMessage } from "../lib/crypto/decryptMessage";
 import { encryptMessage } from "../lib/crypto/encryptMessage";
 import { api } from "../lib/api";
-import { base64ToBuf, bufToBase64 } from "../lib/crypto/generateKeys";
+import { base64ToBuf, } from "../lib/crypto/generateKeys";
 import { useNavigate } from "react-router-dom";
 
 interface Message {

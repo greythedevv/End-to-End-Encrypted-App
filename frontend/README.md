@@ -22,7 +22,7 @@ WhisperBox is a secure real-time messaging application built with React, TypeScr
 
 ## 🌐 Live Demo
 
-> **URL:** `https://your-deployment-url.vercel.app`  
+> **URL:** `https://end-to-end-encrypted-app-u81i.vercel.app/`  
 > **API:** `https://whisperbox.koyeb.app`
 
 ---
@@ -343,7 +343,7 @@ AES-KW 256-bit wrapping key
 ### Installation
 
 ```bash
-git clone https://github.com/your-username/whisperbox.git
+git clone https://github.com/greythedevv/End-to-End-Encrypted-App.git
 cd whisperbox
 npm install
 ```
@@ -435,11 +435,6 @@ src/
 
 ---
 
-## 👥 Team
-
-| Name | Role |
-|---|---|
-| Your Name | Frontend, Crypto Implementation |
 
 ---
 

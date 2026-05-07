@@ -38,10 +38,15 @@ export default function LoginPage() {
       const wrappingKey = await deriveWrappingKey(form.password, saltBytes);
       const privateKey = await unwrapPrivateKey(wrappedKeyBytes.buffer, wrappingKey);
 
+      // Save private key to IndexedDB — the ONLY place it lives
       await savePrivateKey(privateKey);
+
       setAuthToken(data.access_token);
-      localStorage.setItem("token", data.access_token);
-      localStorage.setItem("refreshToken", data.refresh_token);
+
+      // ✅ sessionStorage instead of localStorage
+      sessionStorage.setItem("token", data.access_token);
+      sessionStorage.setItem("refreshToken", data.refresh_token);
+      sessionStorage.setItem("userId", user.id);
 
       setSession({
         token: data.access_token,
@@ -104,64 +109,38 @@ export default function LoginPage() {
         }
 
         .auth-root {
-          min-height: 100vh;
-          width: 100vw;
-          background: var(--bg-deep);
-          font-family: var(--font-body);
-          color: var(--text-1);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          position: relative;
-          overflow: hidden;
+          min-height: 100vh; width: 100vw; background: var(--bg-deep);
+          font-family: var(--font-body); color: var(--text-1);
+          display: flex; align-items: center; justify-content: center;
+          position: relative; overflow: hidden;
         }
 
-        /* Ambient background glow */
         .auth-root::before {
-          content: '';
-          position: absolute;
-          top: -200px;
-          left: 50%;
-          transform: translateX(-50%);
-          width: 600px;
-          height: 600px;
+          content: ''; position: absolute; top: -200px; left: 50%;
+          transform: translateX(-50%); width: 600px; height: 600px;
           background: radial-gradient(circle, #4f8ef712 0%, transparent 70%);
           pointer-events: none;
         }
 
         .auth-root::after {
-          content: '';
-          position: absolute;
-          bottom: -200px;
-          right: -100px;
-          width: 400px;
-          height: 400px;
+          content: ''; position: absolute; bottom: -200px; right: -100px;
+          width: 400px; height: 400px;
           background: radial-gradient(circle, #8b5cf608 0%, transparent 70%);
           pointer-events: none;
         }
 
-        /* Grid pattern */
         .auth-grid {
-          position: absolute;
-          inset: 0;
+          position: absolute; inset: 0;
           background-image:
             linear-gradient(var(--border) 1px, transparent 1px),
             linear-gradient(90deg, var(--border) 1px, transparent 1px);
-          background-size: 40px 40px;
-          opacity: 0.3;
-          pointer-events: none;
+          background-size: 40px 40px; opacity: 0.3; pointer-events: none;
         }
 
         .auth-card {
-          position: relative;
-          z-index: 1;
-          width: 100%;
-          max-width: 400px;
-          margin: 24px;
-          background: var(--bg-panel);
-          border: 1px solid var(--border);
-          border-radius: 20px;
-          padding: 40px 36px;
+          position: relative; z-index: 1; width: 100%; max-width: 400px;
+          margin: 24px; background: var(--bg-panel); border: 1px solid var(--border);
+          border-radius: 20px; padding: 40px 36px;
           box-shadow: 0 32px 80px #00000060, 0 0 0 1px #ffffff06 inset;
           animation: cardIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
         }
@@ -171,86 +150,42 @@ export default function LoginPage() {
           to   { opacity: 1; transform: translateY(0) scale(1); }
         }
 
-        .auth-logo {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          margin-bottom: 32px;
-        }
+        .auth-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 32px; }
 
         .auth-logo-icon {
-          width: 36px;
-          height: 36px;
+          width: 36px; height: 36px;
           background: linear-gradient(135deg, var(--accent), #8b5cf6);
-          border-radius: 10px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 17px;
+          border-radius: 10px; display: flex; align-items: center;
+          justify-content: center; font-size: 17px;
           box-shadow: 0 4px 16px #4f8ef730;
         }
 
         .auth-logo-text {
-          font-family: var(--font-head);
-          font-size: 20px;
-          font-weight: 800;
-          letter-spacing: -0.5px;
-          color: var(--text-1);
+          font-family: var(--font-head); font-size: 20px;
+          font-weight: 800; letter-spacing: -0.5px; color: var(--text-1);
         }
 
         .auth-title {
-          font-family: var(--font-head);
-          font-size: 26px;
-          font-weight: 800;
-          letter-spacing: -0.5px;
-          color: var(--text-1);
-          margin-bottom: 6px;
+          font-family: var(--font-head); font-size: 26px;
+          font-weight: 800; letter-spacing: -0.5px;
+          color: var(--text-1); margin-bottom: 6px;
         }
 
-        .auth-subtitle {
-          font-size: 13px;
-          color: var(--text-2);
-          margin-bottom: 28px;
-          line-height: 1.5;
-        }
+        .auth-subtitle { font-size: 13px; color: var(--text-2); margin-bottom: 28px; line-height: 1.5; }
 
-        .field {
-          margin-bottom: 14px;
-          animation: fieldIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
-        }
-
-        .field:nth-child(1) { animation-delay: 0.05s; }
-        .field:nth-child(2) { animation-delay: 0.1s; }
-        .field:nth-child(3) { animation-delay: 0.15s; }
-
-        @keyframes fieldIn {
-          from { opacity: 0; transform: translateX(-8px); }
-          to   { opacity: 1; transform: translateX(0); }
-        }
+        .field { margin-bottom: 14px; }
 
         .field-label {
-          font-size: 11px;
-          font-weight: 600;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-          color: var(--text-3);
-          margin-bottom: 7px;
+          font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+          text-transform: uppercase; color: var(--text-3); margin-bottom: 7px;
         }
 
-        .field-wrap {
-          position: relative;
-        }
+        .field-wrap { position: relative; }
 
         .field-input {
-          width: 100%;
-          background: var(--bg-input);
-          border: 1px solid var(--border);
-          border-radius: 11px;
-          padding: 12px 14px;
-          color: var(--text-1);
-          font-size: 14px;
-          font-family: var(--font-body);
-          outline: none;
+          width: 100%; background: var(--bg-input); border: 1px solid var(--border);
+          border-radius: 11px; padding: 12px 14px; color: var(--text-1);
+          font-size: 14px; font-family: var(--font-body); outline: none;
           transition: border-color 0.2s, box-shadow 0.2s;
         }
 
@@ -264,33 +199,18 @@ export default function LoginPage() {
         .field-input.has-toggle { padding-right: 44px; }
 
         .toggle-pw {
-          position: absolute;
-          right: 12px;
-          top: 50%;
-          transform: translateY(-50%);
-          background: none;
-          border: none;
-          color: var(--text-3);
-          cursor: pointer;
-          padding: 4px;
-          display: flex;
-          align-items: center;
-          transition: color 0.2s;
+          position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+          background: none; border: none; color: var(--text-3); cursor: pointer;
+          padding: 4px; display: flex; align-items: center; transition: color 0.2s;
         }
 
         .toggle-pw:hover { color: var(--text-2); }
 
         .error-box {
-          background: var(--danger-dim);
-          border: 1px solid #f8717130;
-          border-radius: 10px;
-          padding: 11px 14px;
-          font-size: 13px;
-          color: var(--danger);
-          margin-bottom: 14px;
-          display: flex;
-          align-items: flex-start;
-          gap: 8px;
+          background: var(--danger-dim); border: 1px solid #f8717130;
+          border-radius: 10px; padding: 11px 14px; font-size: 13px;
+          color: var(--danger); margin-bottom: 14px;
+          display: flex; align-items: flex-start; gap: 8px;
           animation: shake 0.3s ease;
         }
 
@@ -301,86 +221,41 @@ export default function LoginPage() {
         }
 
         .submit-btn {
-          width: 100%;
-          padding: 13px;
-          background: var(--accent);
-          border: none;
-          border-radius: 11px;
-          color: white;
-          font-family: var(--font-body);
-          font-size: 14px;
-          font-weight: 600;
-          cursor: pointer;
+          width: 100%; padding: 13px; background: var(--accent); border: none;
+          border-radius: 11px; color: white; font-family: var(--font-body);
+          font-size: 14px; font-weight: 600; cursor: pointer;
           transition: background 0.2s, transform 0.1s, box-shadow 0.2s, opacity 0.2s;
-          margin-top: 6px;
-          box-shadow: 0 4px 16px #4f8ef730;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
+          margin-top: 6px; box-shadow: 0 4px 16px #4f8ef730;
+          display: flex; align-items: center; justify-content: center; gap: 8px;
         }
 
         .submit-btn:hover:not(:disabled) {
-          background: #6ba3ff;
-          box-shadow: 0 6px 24px #4f8ef740;
-          transform: translateY(-1px);
+          background: #6ba3ff; box-shadow: 0 6px 24px #4f8ef740; transform: translateY(-1px);
         }
 
         .submit-btn:active:not(:disabled) { transform: translateY(0); }
         .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
         .spinner {
-          width: 15px;
-          height: 15px;
-          border: 2px solid #ffffff40;
-          border-top-color: white;
-          border-radius: 50%;
+          width: 15px; height: 15px; border: 2px solid #ffffff40;
+          border-top-color: white; border-radius: 50%;
           animation: spin 0.7s linear infinite;
         }
 
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        .auth-divider {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          margin: 20px 0;
-        }
+        .auth-divider { display: flex; align-items: center; gap: 12px; margin: 20px 0; }
+        .auth-divider-line { flex: 1; height: 1px; background: var(--border); }
+        .auth-divider-text { font-size: 12px; color: var(--text-3); }
 
-        .auth-divider-line {
-          flex: 1;
-          height: 1px;
-          background: var(--border);
-        }
+        .auth-link-row { text-align: center; font-size: 13px; color: var(--text-2); }
 
-        .auth-divider-text {
-          font-size: 12px;
-          color: var(--text-3);
-        }
-
-        .auth-link-row {
-          text-align: center;
-          font-size: 13px;
-          color: var(--text-2);
-        }
-
-        .auth-link {
-          color: var(--accent);
-          text-decoration: none;
-          font-weight: 500;
-          transition: color 0.2s;
-        }
-
+        .auth-link { color: var(--accent); text-decoration: none; font-weight: 500; transition: color 0.2s; }
         .auth-link:hover { color: #6ba3ff; }
 
         .enc-notice {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 6px;
-          margin-top: 24px;
-          font-size: 11px;
-          color: var(--text-3);
+          display: flex; align-items: center; justify-content: center;
+          gap: 6px; margin-top: 24px; font-size: 11px; color: var(--text-3);
         }
       `}</style>
 

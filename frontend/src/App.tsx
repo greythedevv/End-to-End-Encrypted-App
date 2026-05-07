@@ -1,44 +1,37 @@
+// src/App.tsx
 import { useEffect } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
-import ChatPage from "./pages/Chat";
+import {  Routes, Route, Navigate } from "react-router-dom";
+import { useAuth } from "./store/useAuth";
+import { setAuthToken } from "./lib/api";
 import LoginPage from "./pages/login";
 import RegisterPage from "./pages/register";
-import { useAuth } from "./store/useAuth";
-import { getPrivateKey } from "./lib/crypto/keyStorage";
-import { setAuthToken } from "./lib/api";
+import ChatPage from "./pages/Chat";
 
-const App = () => {
-  const { token, privateKey } = useAuth();
+export default function App() {
+  const { token, privateKey, loadPrivateKey } = useAuth();
 
   useEffect(() => {
-    if (!token) return;
+    // Restore auth token into axios on every page load
+    if (token) setAuthToken(token);
 
-    setAuthToken(token);
-
-    if (privateKey) return;
-
-    getPrivateKey()
-      .then((key) => {
-        if (key) {
-          window.__PRIVATE_KEY__ = key;
-          useAuth.setState({ privateKey: key });
-        }
-      })
-      .catch((err) => {
-        console.error("Failed to restore private key from IndexedDB:", err);
-      });
-  }, [token, privateKey]);
+    // ✅ KEY FIX: Load private key from IndexedDB on every page load/refresh
+    // This covers the case where the page was refreshed and
+    // window.__PRIVATE_KEY__ was lost (the old broken approach)
+    if (!privateKey) {
+      loadPrivateKey();
+    }
+  }, []);
 
   return (
-    <div>
-      <Routes>
-        <Route path="/chat" element={<ChatPage />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/" element={<RegisterPage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </div>
+    <Routes>
+      <Route path="/" element={<RegisterPage />} />
+      <Route path="/login" element={<LoginPage />} />
+      <Route
+        path="/chat"
+        element={token ? <ChatPage /> : <Navigate to="/login" replace />}
+      />
+    </Routes>
   );
-};
+}
 
-export default App
+

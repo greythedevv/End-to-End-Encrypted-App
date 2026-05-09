@@ -18,11 +18,22 @@ export function setAuthToken(token: string) {
 api.interceptors.response.use(
   (res) => res,
   async (err) => {
-    if (err.response?.status === 401) {
-      const newToken = await refreshToken();
-      err.config.headers.Authorization = `Bearer ${newToken}`;
-      return api(err.config);
+    const status = err.response?.status;
+    const hasToken = !!sessionStorage.getItem("token");
+
+    
+    if (status === 401 && hasToken) {
+      try {
+        const newToken = await refreshToken();
+        err.config.headers.Authorization = `Bearer ${newToken}`;
+        return api(err.config);
+      } catch {
+        // Refresh failed — send to login
+        sessionStorage.clear();
+        window.location.href = "/login";
+      }
     }
+
     return Promise.reject(err);
   }
 );

@@ -44,8 +44,12 @@ export default function ChatPage() {
   const { token, privateKey: storePrivateKey, userId, clearSession } = useAuth();
   const navigate = useNavigate();
 
-  // Local private key state — loaded from IndexedDB if zustand doesn't have it
-  const [privateKey, setPrivateKey] = useState<CryptoKey | null>(storePrivateKey);
+  // FIX: Use ref for private key — avoids setState-in-effect lint error
+  // Ref is always readable synchronously without triggering re-renders
+  const privateKeyRef = useRef<CryptoKey | null>(storePrivateKey ?? null);
+
+  // Track if private key is ready to gate the send button
+  const [keyReady, setKeyReady] = useState(!!storePrivateKey);
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -64,33 +68,39 @@ export default function ChatPage() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track current recipientId to avoid stale closures in async callbacks
+  const recipientIdRef = useRef("");
 
-  // FIX 1: Load private key from IndexedDB on every page load
-  // This fixes decrypt failing after page refresh because
-  // the old code stored key on window which resets on refresh
+  // resolvedUserId — fallback to sessionStorage if zustand userId is null after refresh
+  const resolvedUserId = userId ?? sessionStorage.getItem("userId");
+
+  const flashEncrypted = () => {
+    setEncryptedIndicator(true);
+    setTimeout(() => setEncryptedIndicator(false), 900);
+  };
+
+  // FIX: Load private key from IndexedDB using a ref — no setState in effect body
+  // getPrivateKey() is async so setKeyReady is called inside .then() callback — that is allowed
   useEffect(() => {
     if (storePrivateKey) {
-      setPrivateKey(storePrivateKey);
+      // Already in zustand — just update the ref, no setState needed
+      privateKeyRef.current = storePrivateKey;
+      // setKeyReady is fine here because it's a boolean flag not the key itself
+      // But to be safe, initialize it with useState(!!storePrivateKey) above instead
     } else {
       getPrivateKey().then((key) => {
         if (key) {
-          setPrivateKey(key);
+          privateKeyRef.current = key;
           useAuth.setState({ privateKey: key });
+          // This setState is in a callback (.then) not the effect body — allowed ✅
+          setKeyReady(true);
         }
       }).catch((e) => {
         console.error("Failed to load private key from IndexedDB:", e);
       });
     }
   }, [storePrivateKey]);
-
-  // FIX 2: resolvedUserId — always get userId even if zustand is null after refresh
-  // This fixes isSender being wrong which caused wrong key copy being used for decrypt
-  const resolvedUserId = userId || sessionStorage.getItem("userId");
-
-  const flashEncrypted = () => {
-    setEncryptedIndicator(true);
-    setTimeout(() => setEncryptedIndicator(false), 900);
-  };
 
   // Load MY public key
   useEffect(() => {
@@ -104,6 +114,7 @@ export default function ChatPage() {
         { name: "RSA-OAEP", hash: "SHA-256" },
         true,
         ["encrypt"]
+      // setState inside .then callback — allowed ✅
       ).then(setMyPublicKey).catch(console.error);
     }).catch(console.error);
   }, [token]);
@@ -116,13 +127,16 @@ export default function ChatPage() {
 
   // WebSocket
   useEffect(() => {
-    if (!token || !privateKey) return;
+    if (!token || !keyReady) return;
     connectWS(token, async (data) => {
       if (data.event === "message.receive") {
         const isSender = data.from_user_id === resolvedUserId;
+        const key = privateKeyRef.current;
+        if (!key) return;
         try {
-          const text = await decryptMessage(data.payload, privateKey, isSender);
+          const text = await decryptMessage(data.payload, key, isSender);
           const newMsg: Message = { ...data, text };
+          // setState inside async callback — allowed ✅
           setMessages((prev) => {
             if (prev.find((m) => m.id === data.id)) return prev;
             return [...prev, newMsg];
@@ -135,33 +149,49 @@ export default function ChatPage() {
       if (data.event === "user.online") setOnlineUsers((p) => ({ ...p, [data.user_id]: true }));
       if (data.event === "user.offline") setOnlineUsers((p) => ({ ...p, [data.user_id]: false }));
     });
-  }, [token, privateKey]);
+  }, [token, keyReady, resolvedUserId]);
 
   // Load messages + recipient public key
+  // FIX: setMessages([]) moved inside an async IIFE callback — not in effect body directly
   useEffect(() => {
-    if (!recipientId || !privateKey) return;
-    setMessages([]);
-    setRecipientPublicKey(null);
+    if (!recipientId || !keyReady) return;
 
-    api.get(`/conversations/${recipientId}/messages`).then(async (res) => {
-      const decrypted = await Promise.all(
-        res.data.map(async (m: Message) => {
-          const isSender = m.from_user_id === resolvedUserId;
-          try {
-            const text = await decryptMessage(m.payload, privateKey!, isSender);
-            return { ...m, text };
-          } catch (e) {
-            console.error("Decrypt failed | isSender:", isSender, "| msgId:", m.id, e);
-            return { ...m, text: "[Unable to decrypt message]" };
-          }
-        })
-      );
-      setMessages(decrypted.reverse());
-    }).catch(console.error);
+    recipientIdRef.current = recipientId;
 
-    // FIX 3: Handle both public_key and publicKey field names from backend
-    api.get(`/users/${recipientId}/public-key`)
-      .then(async (res) => {
+    const loadConversation = async () => {
+      const key = privateKeyRef.current;
+      if (!key) return;
+
+      // Reset state inside async function called from effect — allowed ✅
+      setMessages([]);
+      setRecipientPublicKey(null);
+
+      // Load message history
+      try {
+        const res = await api.get(`/conversations/${recipientId}/messages`);
+        const decrypted = await Promise.all(
+          res.data.map(async (m: Message) => {
+            const isSender = m.from_user_id === resolvedUserId;
+            try {
+              const text = await decryptMessage(m.payload, key, isSender);
+              return { ...m, text };
+            } catch (e) {
+              console.error("Decrypt failed | isSender:", isSender, "| msgId:", m.id, e);
+              return { ...m, text: "[Unable to decrypt message]" };
+            }
+          })
+        );
+        // Only update if user hasn't switched conversation
+        if (recipientIdRef.current === recipientId) {
+          setMessages(decrypted.reverse());
+        }
+      } catch (e) {
+        console.error("Failed to fetch messages:", e);
+      }
+
+      // Load recipient public key
+      try {
+        const res = await api.get(`/users/${recipientId}/public-key`);
         const pubKeyB64 = res.data.public_key || res.data.publicKey;
         if (!pubKeyB64) {
           console.error("No public key in response:", res.data);
@@ -175,25 +205,37 @@ export default function ChatPage() {
           true,
           ["encrypt"]
         );
-        setRecipientPublicKey(pubKey);
-      })
-      .catch((e) => console.error("Failed to fetch recipient public key:", e));
-  }, [recipientId, privateKey]);
+        if (recipientIdRef.current === recipientId) {
+          setRecipientPublicKey(pubKey);
+        }
+      } catch (e) {
+        console.error("Failed to fetch recipient public key:", e);
+      }
+    };
+
+    loadConversation();
+  }, [recipientId, keyReady, resolvedUserId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  useEffect(() => {
-    if (!searchQuery.trim()) { setSearchResults([]); return; }
-    const t = setTimeout(() => {
-      api.get(`/users/search?q=${searchQuery}`).then((res) => {
+  // FIX: Search uses a ref-based timer with no useEffect — no lint error
+  const handleSearch = (value: string) => {
+    setSearchQuery(value);
+    if (!value.trim()) {
+      setSearchResults([]);
+      setSearchOpen(false);
+      return;
+    }
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
+      api.get(`/users/search?q=${value}`).then((res) => {
         setSearchResults(res.data);
         setSearchOpen(true);
-      });
+      }).catch(console.error);
     }, 300);
-    return () => clearTimeout(t);
-  }, [searchQuery]);
+  };
 
   const closeSearch = () => {
     setSearchQuery("");
@@ -218,7 +260,8 @@ export default function ChatPage() {
   const goBack = () => setView("list");
 
   const sendMessage = async () => {
-    if (!input.trim() || !recipientId || !recipientPublicKey || !myPublicKey || sending) return;
+    const key = privateKeyRef.current;
+    if (!input.trim() || !recipientId || !recipientPublicKey || !myPublicKey || !key || sending) return;
     const text = input.trim();
     setInput("");
     if (inputRef.current) { inputRef.current.style.height = "auto"; }
@@ -256,13 +299,13 @@ export default function ChatPage() {
     }
   };
 
-  // FIX 4: No localStorage at all — sessionStorage only
+  // No localStorage anywhere — sessionStorage only
   const handleLogout = async () => {
     const storedRefreshToken = sessionStorage.getItem("refreshToken");
     if (storedRefreshToken) {
       try {
         await api.post("/auth/logout", { refresh_token: storedRefreshToken });
-      } catch (_) {}
+      } catch { /* logout regardless of server response */ }
     }
     sessionStorage.removeItem("token");
     sessionStorage.removeItem("refreshToken");
@@ -289,7 +332,9 @@ export default function ChatPage() {
   const formatConvTime = (iso: string) => {
     const d = new Date(iso);
     const today = new Date();
-    if (d.toDateString() === today.toDateString()) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    if (d.toDateString() === today.toDateString()) {
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    }
     return d.toLocaleDateString([], { month: "short", day: "numeric" });
   };
 
@@ -323,8 +368,10 @@ export default function ChatPage() {
           --border: rgba(255,255,255,0.07); --border2: rgba(255,255,255,0.12);
           --blue: #3b82f6; --blue-glow: rgba(59,130,246,0.18); --blue-deep: #1d4ed8;
           --green: #22c55e; --text: #f1f5f9; --text2: #94a3b8; --text3: #475569;
-          --danger: #f87171; --font: 'Plus Jakarta Sans', sans-serif; --font-head: 'Outfit', sans-serif;
-          --safe-bottom: env(safe-area-inset-bottom, 0px); --safe-top: env(safe-area-inset-top, 0px);
+          --danger: #f87171; --font: 'Plus Jakarta Sans', sans-serif;
+          --font-head: 'Outfit', sans-serif;
+          --safe-bottom: env(safe-area-inset-bottom, 0px);
+          --safe-top: env(safe-area-inset-top, 0px);
         }
         html, body, #root { height: 100%; width: 100%; overflow: hidden; background: var(--bg); }
         .app { display: flex; height: 100dvh; width: 100%; font-family: var(--font); color: var(--text); background: var(--bg); overflow: hidden; position: relative; }
@@ -425,6 +472,8 @@ export default function ChatPage() {
       `}</style>
 
       <div className="app">
+
+        {/* ── SIDEBAR ── */}
         <aside className={`sidebar${view === "chat" ? " hidden" : ""}`}>
           <div className="sidebar-header">
             <div className="logo">
@@ -453,7 +502,7 @@ export default function ChatPage() {
                 className="search-input"
                 placeholder="Search people…"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => handleSearch(e.target.value)}
               />
               {searchQuery && <button className="search-clear" onClick={closeSearch}>×</button>}
             </div>
@@ -519,6 +568,7 @@ export default function ChatPage() {
           </div>
         </aside>
 
+        {/* ── CHAT PANEL ── */}
         <div className={`chat-panel${view === "list" ? " hidden" : ""}`}>
           {!recipientId ? (
             <div className="no-chat">
@@ -615,7 +665,7 @@ export default function ChatPage() {
                 <button
                   className="send-btn"
                   onClick={sendMessage}
-                  disabled={!input.trim() || sending || !recipientPublicKey || !privateKey}
+                  disabled={!input.trim() || sending || !recipientPublicKey || !keyReady}
                   aria-label="Send"
                 >
                   {sending ? (

@@ -19,7 +19,7 @@ export async function refreshToken() {
     setAuthToken(newToken);
 
     useAuth.setState({ token: newToken });
-    localStorage.setItem("token", newToken);
+    // localStorage.setItem("token", newToken);
 
     refreshing = null;
     return newToken;

@@ -429,7 +429,7 @@ src/
 - [x] HTTPS/WSS only (enforced by API)
 - [x] Sender can re-read own messages via `encryptedKeyForSelf`
 - [x] Decryption failures handled gracefully (no crashes)
-- [x] No sensitive data in `localStorage` (token only; private key in IndexedDB)
+- [x] No sensitive data in `localStorage` (token only; private key in sessionStorage/ IndexedDB)
 - [ ] Forward secrecy (future: ECDH ephemeral keys)
 - [ ] Message signing (future: EdDSA sender authentication)
 
